@@ -3,12 +3,12 @@ const { createClient } = require('@supabase/supabase-js');
 const cron = require('node-cron');
 
 // Configuração do Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ANON_KEY; // Use uma chave de serviço para autenticação backend
+const supabaseUrl = "https://ccyqfilfqakmjitzjzgh.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjeXFmaWxmcWFrbWppdHpqemdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwOTkwNjksImV4cCI6MjA2MjY3NTA2OX0.vrPdjvpbHueqcCADrY-0TNp6wJ2zWadiE-8Ap369HOo";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Token da BRAPI API
-const BRAPI_TOKEN = process.env.NEXT_PUBLIC_BRAPI_TOKEN;
+const BRAPI_TOKEN = "uYp94DQ1U3a3L8uqg1Adka";
 
 // Função para buscar cotação do dólar
 async function buscarCotacaoDolar() {
