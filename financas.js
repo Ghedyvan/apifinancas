@@ -4,7 +4,7 @@ const cron = require('node-cron');
 
 // Configuração do Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Use uma chave de serviço para autenticação backend
+const supabaseKey = process.env.SUPABASE_SERVICE_ANON_KEY; // Use uma chave de serviço para autenticação backend
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Token da BRAPI API
