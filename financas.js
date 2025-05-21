@@ -83,6 +83,12 @@ async function atualizarCotacaoAtivo(ativo) {
         const variacaoPercentual = resultado.regularMarketChangePercent; // Variação percentual
         const agora = new Date().toISOString();
         
+        // Novos campos a serem armazenados
+        const logoUrl = resultado.logourl;
+        const moeda = resultado.currency;
+        const nomeAbreviado = resultado.shortName;
+        const variacaoAbsoluta = resultado.regularMarketChange;
+        
         console.log(`${ticker}: ${preco} (${isBrazilian ? "BRL" : "USD"}) | Abertura: ${precoAbertura} | Variação: ${variacaoPercentual?.toFixed(2)}%`);
         
         // Salvar no cache
@@ -93,6 +99,10 @@ async function atualizarCotacaoAtivo(ativo) {
             preco: preco,
             preco_abertura: precoAbertura,
             variacao_percentual: variacaoPercentual,
+            variacao_absoluta: variacaoAbsoluta,
+            logo_url: logoUrl,
+            moeda: moeda,
+            nome_abreviado: nomeAbreviado,
             ultima_atualizacao: agora,
             origem: 'brapi'
           }, {
@@ -107,6 +117,10 @@ async function atualizarCotacaoAtivo(ativo) {
           preco,
           preco_abertura: precoAbertura,
           variacao_percentual: variacaoPercentual,
+          variacao_absoluta: variacaoAbsoluta,
+          logo_url: logoUrl,
+          moeda: moeda,
+          nome_abreviado: nomeAbreviado,
           sucesso: true
         };
       }
@@ -147,23 +161,46 @@ async function registrarAtualizacao(resultados) {
   }
 }
 
-// Função que verifica se está dentro do horário comercial (10h às 18h)
+// Função que verifica se está dentro do horário comercial (10h às 18h) considerando o fuso de Brasília
 function dentroHorarioComercial() {
+  // Dallas está em UTC-5 ou UTC-6 dependendo do horário de verão
+  // Brasil está em UTC-3 (não existe mais horário de verão no Brasil)
+  // Precisamos ajustar a diferença que é de 2-3 horas
+  
+  // Obter data atual no servidor (Dallas)
   const agora = new Date();
-  const hora = agora.getHours();
+  
+  // Obter o fuso horário de Dallas em minutos
+  const offsetDallasMinutos = agora.getTimezoneOffset();
+  
+  // Fuso de Brasília é UTC-3, ou seja, -180 minutos em relação a UTC
+  const offsetBrasiliaMinutos = -180;
+  
+  // Diferença entre os fusos em milissegundos
+  const diferencaMs = (offsetDallasMinutos - offsetBrasiliaMinutos) * 60 * 1000;
+  
+  // Criar um novo objeto Date com o horário de Brasília
+  const horaBrasilia = new Date(agora.getTime() + diferencaMs);
+  
+  // Obter a hora no horário de Brasília
+  const hora = horaBrasilia.getHours();
+  
+  console.log(`Hora local (Dallas): ${agora.getHours()}h - Hora Brasil: ${hora}h`);
+  
   return hora >= 10 && hora < 18;
 }
 
 // Função principal que roda as tarefas
-async function executarAtualizacao() {
-  // Verifica se está dentro do horário comercial
-  if (!dentroHorarioComercial()) {
-    console.log('Fora do horário comercial (10h-18h). Atualizações pausadas.');
+async function executarAtualizacao(ignorarHorarioComercial = false) {
+  // Verifica se está dentro do horário comercial (a menos que seja forçado)
+  if (!ignorarHorarioComercial && !dentroHorarioComercial()) {
+    console.log('Fora do horário comercial brasileiro (10h-18h). Atualizações pausadas.');
     return;
   }
   
-  console.log('----- Iniciando atualização de cotações -----');
-  console.log('Data/Hora:', new Date().toLocaleString());
+  const execucaoForcada = ignorarHorarioComercial ? " (execução forçada)" : "";
+  console.log(`----- Iniciando atualização de cotações${execucaoForcada} -----`);
+  console.log('Data/Hora local:', new Date().toLocaleString());
   
   try {
     // Sempre atualiza o dólar primeiro
@@ -200,15 +237,16 @@ async function executarAtualizacao() {
   }
 }
 
-// Executar imediatamente na inicialização, se estiver dentro do horário comercial
-if (dentroHorarioComercial()) {
-  executarAtualizacao();
-} else {
-  console.log('Iniciando serviço fora do horário comercial. Aguardando próximo período válido.');
-}
+// Executar imediatamente na inicialização, independente do horário comercial
+console.log('Iniciando serviço de atualização de cotações...');
+console.log('Executando atualização inicial...');
+executarAtualizacao(true); // O parâmetro true indica execução forçada
 
 // Agendar execução a cada 15 minutos
-cron.schedule('*/15 10-17 * * 1-5', executarAtualizacao); // De segunda a sexta, das 10h às 17:45
+// Dallas está 2-3 horas atrás de Brasília
+// 10h-18h Brasília = 7h-15h ou 8h-16h em Dallas (dependendo do horário de verão)
+// Vamos usar condição mais ampla para cobrir ambas as possibilidades
+cron.schedule('*/15 7-16 * * 1-5', () => executarAtualizacao(false)); // De segunda a sexta
 
 console.log('Serviço de atualização de cotações iniciado...');
-console.log('Horário de funcionamento: Segunda a Sexta, 10h às 18h, a cada 15 minutos');
+console.log('Horário de funcionamento regular: Segunda a Sexta, 10h às 18h (horário brasileiro), a cada 15 minutos');
