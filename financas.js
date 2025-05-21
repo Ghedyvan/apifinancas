@@ -163,34 +163,13 @@ async function registrarAtualizacao(resultados) {
 
 // Função que verifica se está dentro do horário comercial (10h às 18h) considerando o fuso de Brasília
 function dentroHorarioComercial() {
-  // Obter data atual no servidor (Dallas)
+  // Obter data atual no servidor (que já está no horário de Brasília)
   const agora = new Date();
+  const hora = agora.getHours();
   
-  // Fuso de Dallas (UTC-5 ou UTC-6, dependendo do horário de verão)
-  // Fuso do Brasil é fixo em UTC-3
+  console.log(`Hora atual: ${hora}h (horário de Brasília)`);
   
-  // Para converter de Dallas para horário brasileiro:
-  // 1. Converter para UTC
-  // 2. Converter de UTC para Brasil (UTC-3)
-  
-  // Minutos de diferença entre o local atual (Dallas) e UTC
-  const offsetDallasMinutos = agora.getTimezoneOffset();
-  
-  // Converter para UTC: Hora local + offset local
-  const utcTimestamp = agora.getTime() + offsetDallasMinutos * 60 * 1000;
-  
-  // Converter para Brasil (UTC-3): UTC - 3 horas
-  const brasilTimestamp = utcTimestamp - (3 * 60 * 60 * 1000);
-  
-  // Criar data no horário brasileiro
-  const horaBrasilia = new Date(brasilTimestamp);
-  
-  const horaLocal = agora.getHours();
-  const horaBrasil = horaBrasilia.getUTCHours();
-  
-  console.log(`Hora local (Dallas): ${horaLocal}h - Hora Brasil: ${horaBrasil}h`);
-  
-  return horaBrasil >= 10 && horaBrasil < 18;
+  return hora >= 10 && hora < 18;
 }
 
 // Função principal que roda as tarefas
@@ -249,7 +228,7 @@ executarAtualizacao(true); // O parâmetro true indica execução forçada
 // Dallas está 2-3 horas atrás de Brasília
 // 10h-18h Brasília = 7h-15h ou 8h-16h em Dallas (dependendo do horário de verão)
 // Vamos usar condição mais ampla para cobrir ambas as possibilidades
-cron.schedule('*/15 7-16 * * 1-5', () => executarAtualizacao(false)); // De segunda a sexta
+cron.schedule('*/15 10-17 * * 1-5', () => executarAtualizacao(false)); // De segunda a sexta
 
 console.log('Serviço de atualização de cotações iniciado...');
-console.log('Horário de funcionamento regular: Segunda a Sexta, 10h às 18h (horário brasileiro), a cada 15 minutos');
+console.log('Horário de funcionamento regular: Segunda a Sexta, 10h às 18h (horário de Brasília), a cada 15 minutos');
