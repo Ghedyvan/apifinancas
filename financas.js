@@ -163,31 +163,34 @@ async function registrarAtualizacao(resultados) {
 
 // Função que verifica se está dentro do horário comercial (10h às 18h) considerando o fuso de Brasília
 function dentroHorarioComercial() {
-  // Dallas está em UTC-5 ou UTC-6 dependendo do horário de verão
-  // Brasil está em UTC-3 (não existe mais horário de verão no Brasil)
-  // Precisamos ajustar a diferença que é de 2-3 horas
-  
   // Obter data atual no servidor (Dallas)
   const agora = new Date();
   
-  // Obter o fuso horário de Dallas em minutos
+  // Fuso de Dallas (UTC-5 ou UTC-6, dependendo do horário de verão)
+  // Fuso do Brasil é fixo em UTC-3
+  
+  // Para converter de Dallas para horário brasileiro:
+  // 1. Converter para UTC
+  // 2. Converter de UTC para Brasil (UTC-3)
+  
+  // Minutos de diferença entre o local atual (Dallas) e UTC
   const offsetDallasMinutos = agora.getTimezoneOffset();
   
-  // Fuso de Brasília é UTC-3, ou seja, -180 minutos em relação a UTC
-  const offsetBrasiliaMinutos = -180;
+  // Converter para UTC: Hora local + offset local
+  const utcTimestamp = agora.getTime() + offsetDallasMinutos * 60 * 1000;
   
-  // Diferença entre os fusos em milissegundos
-  const diferencaMs = (offsetDallasMinutos - offsetBrasiliaMinutos) * 60 * 1000;
+  // Converter para Brasil (UTC-3): UTC - 3 horas
+  const brasilTimestamp = utcTimestamp - (3 * 60 * 60 * 1000);
   
-  // Criar um novo objeto Date com o horário de Brasília
-  const horaBrasilia = new Date(agora.getTime() + diferencaMs);
+  // Criar data no horário brasileiro
+  const horaBrasilia = new Date(brasilTimestamp);
   
-  // Obter a hora no horário de Brasília
-  const hora = horaBrasilia.getHours();
+  const horaLocal = agora.getHours();
+  const horaBrasil = horaBrasilia.getUTCHours();
   
-  console.log(`Hora local (Dallas): ${agora.getHours()}h - Hora Brasil: ${hora}h`);
+  console.log(`Hora local (Dallas): ${horaLocal}h - Hora Brasil: ${horaBrasil}h`);
   
-  return hora >= 10 && hora < 18;
+  return horaBrasil >= 10 && horaBrasil < 18;
 }
 
 // Função principal que roda as tarefas
