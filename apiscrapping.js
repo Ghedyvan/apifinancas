@@ -31,14 +31,14 @@ class InfoMoneyScrapperService {
         }
     }
 
-    // Função para verificar se está no horário comercial de Brasília
-    isBusinessHours() {
-        // Austin está 2 horas atrás de Brasília (sem horário de verão)
+    getBrasiliaTime() {
+        // Método mais preciso usando timezone nativo do JavaScript
         const now = new Date();
-        const austinTime = new Date(now.getTime());
-        const brasiliaTime = new Date(austinTime.getTime() + (2 * 60 * 60 * 1000)); // +2 horas
-
-        const dayOfWeek = brasiliaTime.getDay(); // 0 = domingo, 1 = segunda, ..., 6 = sábado
+        return new Date(now.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+    }
+    isBusinessHours() {
+        const brasiliaTime = this.getBrasiliaTime();
+        const dayOfWeek = brasiliaTime.getDay();
         const hour = brasiliaTime.getHours();
         const minute = brasiliaTime.getMinutes();
         const currentTime = hour + (minute / 60);
@@ -48,13 +48,6 @@ class InfoMoneyScrapperService {
         const isBusinessTime = currentTime >= 9.5 && currentTime <= 17.5;
 
         return isWeekday && isBusinessTime;
-    }
-
-    getBrasiliaTime() {
-        const now = new Date();
-        const austinTime = new Date(now.getTime());
-        const brasiliaTime = new Date(austinTime.getTime() + (2 * 60 * 60 * 1000));
-        return brasiliaTime;
     }
 
     async makeRequest(pageIndex) {
