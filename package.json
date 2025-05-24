@@ -1,0 +1,27 @@
+{
+  "name": "api-financas-scraper",
+  "version": "1.0.0",
+  "description": "Scraper para dados financeiros da InfoMoney",
+  "main": "apiscrapping.js",
+  "scripts": {
+    "start": "node apiscrapping.js",
+    "dev": "nodemon apiscrapping.js",
+    "once": "node apiscrapping.js --once",
+    "stats": "node apiscrapping.js --stats"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.8",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "keywords": [
+    "finance",
+    "scraper",
+    "infomoney",
+    "api"
+  ],
+  "author": "Seu Nome",
+  "license": "MIT"
+}
