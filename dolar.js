@@ -1,234 +1,280 @@
-require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
-const cron = require('node-cron');
+require("dotenv").config();
+const { createClient } = require("@supabase/supabase-js");
+const fetch = require("node-fetch");
 
-// Configuração do Supabase
-const supabaseUrl = "https://ccyqfilfqakmjitzjzgh.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjeXFmaWxmcWFrbWppdHpqemdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwOTkwNjksImV4cCI6MjA2MjY3NTA2OX0.vrPdjvpbHueqcCADrY-0TNp6wJ2zWadiE-8Ap369HOo";
+// Configurações do Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Token da BRAPI API
-const BRAPI_TOKEN = "uYp94DQ1U3a3L8uqg1Adka";
+// API para cotação do dólar (AwesomeAPI - gratuita)
+const DOLLAR_API_URL = "https://economia.awesomeapi.com.br/json/last/USD-BRL";
 
-// Função para buscar cotação do dólar
-async function buscarCotacaoDolar() {
-  try {
-    console.log('Buscando cotação do dólar...');
-    const response = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL');
-    const data = await response.json();
-
-    if (data && data.USDBRL) {
-      const cotacaoDolar = parseFloat(data.USDBRL.bid);
-      console.log(`Cotação do dólar atualizada: R$ ${cotacaoDolar.toFixed(2)}`);
-      
-      // Salvar no cache do Supabase
-      const { error } = await supabase
-        .from('cotacoes_cache')
-        .upsert({
-          ticker: 'USD',
-          preco: cotacaoDolar,
-          ultima_atualizacao: new Date().toISOString(),
-          origem: 'awesomeapi'
-        }, {
-          onConflict: 'ticker',
-          ignoreDuplicates: false
-        });
-      
-      if (error) throw error;
-    }
-  } catch (error) {
-    console.error('Erro ao atualizar cotação do dólar:', error);
+class DolarCotacaoService {
+  constructor() {
+    this.intervalId = null;
+    this.hasRunInitially = false;
   }
-}
 
-// Função para buscar todos os ativos do banco
-async function buscarAtivos() {
-  try {
-    console.log('Buscando ativos cadastrados...');
-    const { data, error } = await supabase
-      .from('ativos_investidos')
-      .select('nome, tipo')
-      .order('tipo', { ascending: true });
-    
-    if (error) throw error;
-    
-    return data || [];
-  } catch (error) {
-    console.error('Erro ao buscar ativos:', error);
-    return [];
+  getBrasiliaTime() {
+    const now = new Date();
+    return new Date(
+      now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" })
+    );
   }
-}
 
-// Função para atualizar a cotação de um único ativo
-async function atualizarCotacaoAtivo(ativo) {
-  try {
-    console.log(`Atualizando cotação de ${ativo.nome} (${ativo.tipo})...`);
-    
-    // Determinar se é ativo brasileiro ou americano
-    const isBrazilian = ativo.tipo !== "ação_eua" && ativo.tipo !== "etf_eua";
-    
-    const url = `https://brapi.dev/api/quote/${ativo.nome}?range=1d&interval=1d&fundamental=false&token=${BRAPI_TOKEN}`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data && data.results) {
-      // API pode retornar um array ou objeto único
-      const resultado = Array.isArray(data.results) ? data.results[0] : data.results;
-      
-      if (resultado) {
-        const ticker = resultado.symbol;
-        const preco = resultado.regularMarketPrice;
-        const precoAbertura = resultado.regularMarketOpen; // Preço de abertura
-        const variacaoPercentual = resultado.regularMarketChangePercent; // Variação percentual
-        const agora = new Date().toISOString();
-        
-        // Novos campos a serem armazenados
-        const logoUrl = resultado.logourl;
-        const moeda = resultado.currency;
-        const nomeAbreviado = resultado.shortName;
-        const variacaoAbsoluta = resultado.regularMarketChange;
-        
-        console.log(`${ticker}: ${preco} (${isBrazilian ? "BRL" : "USD"}) | Abertura: ${precoAbertura} | Variação: ${variacaoPercentual?.toFixed(2)}%`);
-        
-        // Salvar no cache
-        const { error } = await supabase
-          .from('cotacoes_cache')
-          .upsert({
-            ticker: ticker,
-            preco: preco,
-            preco_abertura: precoAbertura,
-            variacao_percentual: variacaoPercentual,
-            variacao_absoluta: variacaoAbsoluta,
-            logo_url: logoUrl,
-            moeda: moeda,
-            nome_abreviado: nomeAbreviado,
-            ultima_atualizacao: agora,
-            origem: 'brapi'
-          }, {
-            onConflict: 'ticker',
-            ignoreDuplicates: false
-          });
-          
-        if (error) throw error;
-        
-        return {
-          ticker,
-          preco,
-          preco_abertura: precoAbertura,
-          variacao_percentual: variacaoPercentual,
-          variacao_absoluta: variacaoAbsoluta,
-          logo_url: logoUrl,
-          moeda: moeda,
-          nome_abreviado: nomeAbreviado,
-          sucesso: true
-        };
+  isBusinessHours() {
+    const brasiliaTime = this.getBrasiliaTime();
+    const dayOfWeek = brasiliaTime.getDay();
+    const hour = brasiliaTime.getHours();
+    const minute = brasiliaTime.getMinutes();
+    const currentTime = hour + minute / 60;
+
+    // Segunda a sexta (1-5) das 9:00 às 18:00
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const isBusinessTime = currentTime >= 9.0 && currentTime <= 18.0;
+
+    return isWeekday && isBusinessTime;
+  }
+
+  async fetchDollarQuote() {
+    try {
+      const response = await fetch(DOLLAR_API_URL, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log(`❌ Erro HTTP ${response.status}:`, errorText.substring(0, 500));
+        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error("❌ Erro ao buscar cotação do dólar:", error.message);
+      return null;
+    }
+  }
+
+  formatDollarData(apiData) {
+    if (!apiData || !apiData.USDBRL) {
+      return null;
+    }
+
+    const usdData = apiData.USDBRL;
+    
+    // Dados da API AwesomeAPI:
+    // bid: cotação de compra (atual)
+    // ask: cotação de venda
+    // high: máxima do dia
+    // low: mínima do dia
+    // varBid: variação da cotação de compra
+    // pctChange: variação percentual
+    
+    const precoAtual = parseFloat(usdData.bid);
+    const precoAbertura = parseFloat(usdData.low); // Usando low como aproximação da abertura
+    const variacaoPercentual = parseFloat(usdData.pctChange);
+    
+    // Se não temos pctChange, calcular baseado em high/low
+    let variacaoCalculada = variacaoPercentual;
+    if (!variacaoPercentual && usdData.high && usdData.low) {
+      const high = parseFloat(usdData.high);
+      const low = parseFloat(usdData.low);
+      variacaoCalculada = ((precoAtual - low) / low) * 100;
     }
     
-    throw new Error('Dados não encontrados na resposta da API');
-  } catch (error) {
-    console.error(`Erro ao atualizar cotação de ${ativo.nome}:`, error);
     return {
-      ticker: ativo.nome,
-      sucesso: false,
-      erro: error.message
+      id: 32, // ID fixo conforme especificado
+      ticker: "USD",
+      preco: precoAtual, // Cotação atual de compra
+      preco_abertura: precoAbertura, // Aproximação usando low
+      variacao_percentual: variacaoCalculada ? parseFloat(variacaoCalculada.toFixed(4)) : null,
+      ultima_atualizacao: new Date().toISOString(),
+      logo_url: "https://icons.veryicon.com/png/o/miscellaneous/alan-ui/logo-usd-3.png",
+      moeda: "BRL",
+      nome: "Dólar Americano"
     };
   }
-}
 
-// Função para registrar quando foi a última execução
-async function registrarAtualizacao(resultados) {
-  try {
-    const timestamp = new Date().toISOString();
-    const sucessos = resultados.filter(r => r.sucesso).length;
-    const falhas = resultados.filter(r => !r.sucesso).length;
-    
-    const { error } = await supabase
-      .from('sistema_logs')
-      .insert({
-        tipo: 'atualizacao_cotacoes',
-        mensagem: `Atualização executada: ${sucessos} sucessos, ${falhas} falhas`,
-        detalhes: JSON.stringify(resultados),
-        timestamp: timestamp
-      });
+  async saveToSupabase(dollarData) {
+    try {
+      console.log(`💰 USD/BRL: R$ ${dollarData.preco}`);
+  
+
+      // Upsert pelo ID fixo (32)
+      const { data, error } = await supabase
+        .from("cotacoes_cache")
+        .upsert(dollarData, { onConflict: "id" })
+        .select();
+
+      if (error) {
+        console.error("❌ Erro ao salvar no Supabase:", error.message);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("❌ Erro geral ao salvar no Supabase:", error.message);
+      return false;
+    }
+  }
+
+  async fetchAndSaveDollarQuote() {
+    try {
+      const brasiliaTime = this.getBrasiliaTime();
+
+      // Verificar se é primeira execução ou horário comercial
+      if (!this.hasRunInitially || this.isBusinessHours()) {
+        if (!this.hasRunInitially) {
+          console.log(`🎬 PRIMEIRA EXECUÇÃO - ${brasiliaTime.toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          })}`);
+          this.hasRunInitially = true;
+        } else {
+          console.log(`⏰ EXECUÇÃO PROGRAMADA - ${brasiliaTime.toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          })}`);
+        }
+
+        // Buscar cotação
+        const apiData = await this.fetchDollarQuote();
+
+        if (!apiData) {
+          console.log("❌ Falha ao obter dados da API de cotação");
+          return;
+        }
+
+        // Formatar dados
+        const dollarData = this.formatDollarData(apiData);
+
+        if (!dollarData) {
+          console.log("❌ Falha ao formatar dados da cotação");
+          return;
+        }
+
+        // Salvar no Supabase
+        const success = await this.saveToSupabase(dollarData);
+      } 
+    } catch (error) {
+      console.error("❌ Erro durante a coleta:", error.message);
+    }
+  }
+
+  startAutomation() {
+    const brasiliaTime = this.getBrasiliaTime();
+   
+    // Executar imediatamente
+    this.fetchAndSaveDollarQuote();
+
+    // Agendar execuções a cada 15 minutos
+    this.intervalId = setInterval(() => {
+      this.fetchAndSaveDollarQuote();
+    }, 15 * 60 * 1000);
+
+  }
+
+  stopAutomation() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+      console.log("🛑 Automação parada");
+    }
+  }
+
+  async getStats() {
+    try {
+      const { data, error } = await supabase
+        .from("cotacoes_cache")
+        .select("*")
+        .eq("id", 32)
+        .single();
+
+      if (error) {
+        console.error("❌ Erro ao buscar estatísticas:", error.message);
+        return;
+      }
+
+      const brasiliaTime = this.getBrasiliaTime();
+
+    } catch (error) {
+      console.error("❌ Erro ao buscar estatísticas:", error.message);
+    }
+  }
+
+  async testConnection() {
+    try {
+      console.log("🧪 Testando conexão com API de cotação...");
       
-    if (error) throw error;
-    
-    console.log(`Log de atualização registrado: ${timestamp}`);
-  } catch (error) {
-    console.error('Erro ao registrar log:', error);
+      const apiData = await this.fetchDollarQuote();
+      
+      if (apiData && apiData.USDBRL) {
+        const dollarData = this.formatDollarData(apiData);
+        return true;
+      } else {
+        console.log("❌ Falha na resposta da API");
+        return false;
+      }
+    } catch (error) {
+      console.error("❌ Erro no teste:", error.message);
+      return false;
+    }
   }
 }
 
-// Função que verifica se está dentro do horário comercial (10h às 18h) considerando o fuso de Brasília
-function dentroHorarioComercial() {
-  // Obter data atual no servidor (que já está no horário de Brasília)
-  const agora = new Date();
-  const hora = agora.getHours();
-  
-  console.log(`Hora atual: ${hora}h (horário de Brasília)`);
-  
-  return hora >= 10 && hora < 18;
+// Função para manusear encerramento gracioso
+function setupGracefulShutdown(service) {
+  process.on("SIGINT", () => {
+    console.log("\n🛑 Recebido sinal de interrupção...");
+    service.stopAutomation();
+    process.exit(0);
+  });
+
+  process.on("SIGTERM", () => {
+    console.log("\n🛑 Recebido sinal de terminação...");
+    service.stopAutomation();
+    process.exit(0);
+  });
 }
 
-// Função principal que roda as tarefas
-async function executarAtualizacao(ignorarHorarioComercial = false) {
-  // Verifica se está dentro do horário comercial (a menos que seja forçado)
-  if (!ignorarHorarioComercial && !dentroHorarioComercial()) {
-    console.log('Fora do horário comercial brasileiro (10h-18h). Atualizações pausadas.');
+// Função principal
+async function main() {
+  const service = new DolarCotacaoService();
+  setupGracefulShutdown(service);
+
+  // Verificar argumentos da linha de comando
+  const args = process.argv.slice(2);
+
+  if (args.includes("--stats")) {
+    await service.getStats();
     return;
   }
-  
-  const execucaoForcada = ignorarHorarioComercial ? " (execução forçada)" : "";
-  console.log(`----- Iniciando atualização de cotações${execucaoForcada} -----`);
-  console.log('Data/Hora local:', new Date().toLocaleString());
-  
-  try {
-    // Sempre atualiza o dólar primeiro
-    await buscarCotacaoDolar();
-    
-    // Busca os ativos
-    const ativos = await buscarAtivos();
-    
-    if (ativos.length === 0) {
-      console.log('Nenhum ativo encontrado para atualizar.');
-      return;
-    }
-    
-    console.log(`${ativos.length} ativos encontrados. Atualizando um por um...`);
-    
-    // Aqui usamos esperas sequenciais para evitar sobrecarga da API
-    const resultados = [];
-    for (const ativo of ativos) {
-      // Aguarda um período entre requisições para não sobrecarregar a API
-      const resultado = await atualizarCotacaoAtivo(ativo);
-      resultados.push(resultado);
-      
-      // Espera 500ms entre requisições para ser gentil com a API
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    
-    // Registra os resultados no log
-    await registrarAtualizacao(resultados);
-    
-    console.log('----- Atualização concluída com sucesso -----\n');
-  } catch (error) {
-    console.error('Erro durante atualização:', error);
-    console.log('----- Atualização finalizada com erros -----\n');
+
+  if (args.includes("--test")) {
+    await service.testConnection();
+    return;
   }
+
+  if (args.includes("--once")) {
+    console.log("🎯 Executando apenas uma vez...");
+    await service.fetchAndSaveDollarQuote();
+    return;
+  }
+
+  // Iniciar automação por padrão
+  service.startAutomation();
 }
 
-// Executar imediatamente na inicialização, independente do horário comercial
-console.log('Iniciando serviço de atualização de cotações...');
-console.log('Executando atualização inicial...');
-executarAtualizacao(true); // O parâmetro true indica execução forçada
+// Executar apenas se este arquivo for executado diretamente
+if (require.main === module) {
+  main().catch((error) => {
+    console.error("❌ Erro fatal:", error);
+    process.exit(1);
+  });
+}
 
-// Agendar execução a cada 15 minutos
-// Dallas está 2-3 horas atrás de Brasília
-// 10h-18h Brasília = 7h-15h ou 8h-16h em Dallas (dependendo do horário de verão)
-// Vamos usar condição mais ampla para cobrir ambas as possibilidades
-cron.schedule('*/15 10-17 * * 1-5', () => executarAtualizacao(false)); // De segunda a sexta
-
-console.log('Serviço de atualização de cotações iniciado...');
-console.log('Horário de funcionamento regular: Segunda a Sexta, 10h às 18h (horário de Brasília), a cada 15 minutos');
+module.exports = DolarCotacaoService;
