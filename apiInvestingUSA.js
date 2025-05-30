@@ -86,58 +86,58 @@ class FinnhubDataService {
     }
   }
 
-  async fetchAllPages() {
-    console.log("🔍 Buscando todas as páginas de dados (500 registros por página)...");
+ async fetchAllPages() {
+  console.log("🔍 Buscando todas as páginas de dados (500 registros por página)...");
+  
+  let allData = [];
+  let currentPage = 0; // Começar com 0 (base zero)
+  let hasMoreData = true;
+  const totalExpected = 10826; // Total conhecido de ativos
+  
+  while (hasMoreData) {
+    console.log(`📄 Processando página ${currentPage}...`); // Mostrar página real
     
-    let allData = [];
-    let currentPage = 1;
-    let hasMoreData = true;
-    const totalExpected = 10826; // Total conhecido de ativos
+    const response = await this.makeRequest(currentPage);
     
-    while (hasMoreData) {
-      console.log(`📄 Processando página ${currentPage + 1}...`);
-      
-      const response = await this.makeRequest(currentPage);
-      
-      if (!response || !response.data) {
-        console.log(`❌ Falha ao obter dados da página ${currentPage}`);
-        break;
-      }
-
-      const pageData = response.data;
-      console.log(`📊 Página ${currentPage + 1}: ${pageData.length} registros recebidos`);
-
-      if (pageData.length === 0) {
-        console.log("📄 Nenhum dado na página atual, finalizando...");
-        hasMoreData = false;
-        break;
-      }
-
-      allData.push(...pageData);
-      currentPage++;
-
-      const progress = ((allData.length / totalExpected) * 100).toFixed(1);
-      console.log(`📈 Progresso: ${allData.length}/${totalExpected} registros (${progress}%)`);
-
-      // Pausa entre requisições para não sobrecarregar a API
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Se recebeu menos que 500, provavelmente é a última página
-      if (pageData.length < 500) {
-        console.log("📄 Última página detectada (menos de 500 registros)");
-        hasMoreData = false;
-      }
-
-      // Limite de segurança para evitar loops infinitos
-      if (currentPage > 25) { // 25 páginas * 500 = 12.500 registros (margem de segurança)
-        console.log("⚠️ Limite de páginas atingido (25), parando...");
-        break;
-      }
+    if (!response || !response.data) {
+      console.log(`❌ Falha ao obter dados da página ${currentPage}`);
+      break;
     }
 
-    console.log(`✅ Coleta finalizada: ${allData.length} registros de ${currentPage} páginas`);
-    return allData;
+    const pageData = response.data;
+    console.log(`📊 Página ${currentPage}: ${pageData.length} registros recebidos`);
+
+    if (pageData.length === 0) {
+      console.log("📄 Nenhum dado na página atual, finalizando...");
+      hasMoreData = false;
+      break;
+    }
+
+    allData.push(...pageData);
+    currentPage++; // Incrementar após o processamento
+
+    const progress = ((allData.length / totalExpected) * 100).toFixed(1);
+    console.log(`📈 Progresso: ${allData.length}/${totalExpected} registros (${progress}%)`);
+
+    // Pausa entre requisições para não sobrecarregar a API
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Reduzido para 2s
+
+    // Se recebeu menos que 500, provavelmente é a última página
+    if (pageData.length < 500) {
+      console.log("📄 Última página detectada (menos de 500 registros)");
+      hasMoreData = false;
+    }
+
+    // Limite de segurança para evitar loops infinitos
+    if (currentPage >= 25) { // Alterado para >= 25
+      console.log("⚠️ Limite de páginas atingido (25), parando...");
+      break;
+    }
   }
+
+  console.log(`✅ Coleta finalizada: ${allData.length} registros de ${currentPage} páginas`);
+  return allData;
+}
 
   filterFinnhubData(data) {
     return data.map((item) => ({
