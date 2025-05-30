@@ -36,57 +36,69 @@ class FinnhubDataService {
     return isWeekday && isBusinessTime;
   }
 
-  async makeRequest(page = 0) {
-    const queryParams = {
-      "fields-list": "id,name,symbol,isCFD,high,low,last,lastPairDecimal,change,changePercent,volume,time,isOpen,url,flag,countryNameTranslated,exchangeId,performanceDay,performanceWeek,performanceMonth,performanceYtd,performanceYear,performance3Year,technicalHour,technicalDay,technicalWeek,technicalMonth,avgVolume,fundamentalMarketCap,fundamentalRevenue,fundamentalRatio,fundamentalBeta,pairType",
-      "country-id": 5, // País ID 5 para USA
-      "filter-domain": "",
-      page: page,
-      "page-size": 500, // Mantendo 500 como você sugeriu
-      limit: 0,
-      "include-additional-indices": false,
-      "include-major-indices": false,
-      "include-other-indices": false,
-      "include-primary-sectors": false,
-      "include-market-overview": false,
-    };
+  async makeRequest(page = 0, retryAttempt = 0) {
+  const maxRetries = 3;
+  const queryParams = {
+    "fields-list": "id,name,symbol,isCFD,high,low,last,lastPairDecimal,change,changePercent,volume,time,isOpen,url,flag,countryNameTranslated,exchangeId,performanceDay,performanceWeek,performanceMonth,performanceYtd,performanceYear,performance3Year,technicalHour,technicalDay,technicalWeek,technicalMonth,avgVolume,fundamentalMarketCap,fundamentalRevenue,fundamentalRatio,fundamentalBeta,pairType",
+    "country-id": 5, // País ID 5 para USA
+    "filter-domain": "",
+    page: page,
+    "page-size": 500, // Mantendo 500 como você sugeriu
+    limit: 0,
+    "include-additional-indices": false,
+    "include-major-indices": false,
+    "include-other-indices": false,
+    "include-primary-sectors": false,
+    "include-market-overview": false,
+  };
 
-    const url = new URL(API_URL);
-    Object.keys(queryParams).forEach((key) => {
-      if (queryParams[key] !== undefined && queryParams[key] !== null) {
-        url.searchParams.append(key, queryParams[key]);
-      }
+  const url = new URL(API_URL);
+  Object.keys(queryParams).forEach((key) => {
+    if (queryParams[key] !== undefined && queryParams[key] !== null) {
+      url.searchParams.append(key, queryParams[key]);
+    }
+  });
+
+  const retryText = retryAttempt > 0 ? ` (tentativa ${retryAttempt + 1}/${maxRetries + 1})` : "";
+  console.log(`🚀 Fazendo requisição GET para página ${page}${retryText}`);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "*/*",
+        "User-Agent": "Thunder Client (https://www.thunderclient.com)",
+        Cookie: "__cflb=02DiuEaBtsFfH7bEbN5e6S2b8T1ZBoeD4McSCKs9QXk2Y; __cf_bm=vh9Hh8c0WRkL4VweyMhf05i84C3YBHe5EdnicJvuFek-1748165272-1.0.1.1-wSGSIYYObeLYEwY1gpHQkVoqUV0ixr1",
+      },
     });
 
-    console.log(`🚀 Fazendo requisição GET para página ${page}`);
+    console.log(`📡 Status da resposta: ${response.status} ${response.statusText}`);
 
-    try {
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          Accept: "*/*",
-          "User-Agent": "Thunder Client (https://www.thunderclient.com)",
-          Cookie: "__cflb=02DiuEaBtsFfH7bEbN5e6S2b8T1ZBoeD4McSCKs9QXk2Y; __cf_bm=vh9Hh8c0WRkL4VweyMhf05i84C3YBHe5EdnicJvuFek-1748165272-1.0.1.1-wSGSIYYObeLYEwY1gpHQkVoqUV0ixr1",
-        },
-      });
-
-      console.log(`📡 Status da resposta: ${response.status} ${response.statusText}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.log(`❌ Erro HTTP ${response.status}:`, errorText.substring(0, 500));
-        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error(`❌ Erro ao fazer requisição página ${page}:`, error.message);
-      return null;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(`❌ Erro HTTP ${response.status}:`, errorText.substring(0, 500));
+      throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
     }
-  }
 
- async fetchAllPages() {
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`❌ Erro ao fazer requisição página ${page}${retryText}:`, error.message);
+    
+    // Tentar novamente se ainda não excedeu o limite de tentativas
+    if (retryAttempt < maxRetries) {
+      const waitTime = (retryAttempt + 1) * 3000; // Aumento progressivo: 3s, 6s, 9s
+      console.log(`⏳ Aguardando ${waitTime/1000}s antes de tentar novamente...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      return this.makeRequest(page, retryAttempt + 1);
+    }
+    
+    console.error(`💥 Falha definitiva na página ${page} após ${maxRetries + 1} tentativas`);
+    return null;
+  }
+}
+
+async fetchAllPages() {
   console.log("🔍 Buscando todas as páginas de dados (500 registros por página)...");
   
   let allData = [];
@@ -100,8 +112,15 @@ class FinnhubDataService {
     const response = await this.makeRequest(currentPage);
     
     if (!response || !response.data) {
-      console.log(`❌ Falha ao obter dados da página ${currentPage}`);
-      break;
+      console.log(`❌ Falha ao obter dados da página ${currentPage} - continuando para próxima página...`);
+      currentPage++;
+      
+      // Se falhar em 3 páginas consecutivas, parar
+      if (currentPage > 2 && allData.length === 0) {
+        console.log("❌ Muitas falhas consecutivas, encerrando...");
+        break;
+      }
+      continue;
     }
 
     const pageData = response.data;
@@ -119,8 +138,9 @@ class FinnhubDataService {
     const progress = ((allData.length / totalExpected) * 100).toFixed(1);
     console.log(`📈 Progresso: ${allData.length}/${totalExpected} registros (${progress}%)`);
 
-    // Pausa entre requisições para não sobrecarregar a API
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Reduzido para 2s
+    // Pausa maior entre requisições para não sobrecarregar a API
+    console.log("⏳ Aguardando 10 segundos antes da próxima requisição...");
+    await new Promise(resolve => setTimeout(resolve, 10000)); // Aumentado para 10s
 
     // Se recebeu menos que 500, provavelmente é a última página
     if (pageData.length < 500) {
