@@ -111,9 +111,6 @@ class InvestingDataService {
 
   async saveToSupabase(investingData) {
     try {
-      console.log(
-        `💾 Salvando ${investingData.length} registros no Supabase...`
-      );
 
       // Inserir ou atualizar dados em lotes
       const batchSize = 1000;

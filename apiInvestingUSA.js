@@ -120,7 +120,7 @@ class FinnhubDataService {
       console.log(`📈 Progresso: ${allData.length}/${totalExpected} registros (${progress}%)`);
 
       // Pausa entre requisições para não sobrecarregar a API
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
       // Se recebeu menos que 500, provavelmente é a última página
       if (pageData.length < 500) {
