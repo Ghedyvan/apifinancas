@@ -6,10 +6,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const TRADINGVIEW_API_URL = "https://scanner.tradingview.com/america/scan?label-product=screener-stock";
+const TRADINGVIEW_API_URL = "https://scanner.tradingview.com/brazil/scan?label-product=screener-etf";
 const LOGO_URL_TEMPLATE = "https://s3-symbol-logo.tradingview.com/{logoid}.svg";
 
-class TradingViewStockService {
+class TradingViewETFBrazilService {
   constructor() {
     this.intervalId = null;
     this.hasRunInitially = false;
@@ -29,14 +29,14 @@ class TradingViewStockService {
     const minute = brasiliaTime.getMinutes();
     const currentTime = hour + minute / 60;
 
-    // Segunda a sexta (1-5) das 9:30 às 17:30
+    // Segunda a sexta (1-5) das 10:00 às 17:00 (horário B3)
     const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-    const isBusinessTime = currentTime >= 9.5 && currentTime <= 17.5;
+    const isBusinessTime = currentTime >= 10.0 && currentTime <= 17.0;
 
     return isWeekday && isBusinessTime;
   }
 
-  createPayload(startRange = 0, endRange = 300) {
+  createPayload(startRange = 0, endRange = 200) {
     return {
       columns: [
         "name",
@@ -52,31 +52,15 @@ class TradingViewStockService {
         "minmove2",
         "currency",
         "change",
-        "volume",
+        "Value.Traded",
         "relative_volume_10d_calc",
-        "market_cap_basic",
+        "aum",
         "fundamental_currency_code",
-        "price_earnings_ttm",
-        "earnings_per_share_diluted_ttm",
-        "earnings_per_share_diluted_yoy_growth_ttm",
-        "dividends_yield_current",
-        "sector.tr",
-        "market",
-        "sector",
-        "recommendation_mark",
+        "nav_total_return.3Y",
+        "expense_ratio",
+        "asset_class.tr",
+        "focus.tr",
         "exchange"
-      ],
-      filter: [
-        {
-          left: "is_blacklisted",
-          operation: "equal",
-          right: false
-        },
-        {
-          left: "is_primary",
-          operation: "equal",
-          right: true
-        }
       ],
       ignore_unknown_fields: false,
       options: {
@@ -84,16 +68,11 @@ class TradingViewStockService {
       },
       range: [startRange, endRange],
       sort: {
-        sortBy: "market_cap_basic",
+        sortBy: "aum",
         sortOrder: "desc"
       },
-      symbols: {
-        symbolset: [
-          "SYML:SP;SPX",
-          "SYML:NASDAQ;NDX"
-        ]
-      },
-      markets: ["america"],
+      symbols: {},
+      markets: ["brazil"],
       filter2: {
         operator: "and",
         operands: [
@@ -107,72 +86,23 @@ class TradingViewStockService {
                     operands: [
                       {
                         expression: {
-                          left: "type",
-                          operation: "equal",
-                          right: "stock"
-                        }
-                      },
-                      {
-                        expression: {
                           left: "typespecs",
                           operation: "has",
-                          right: ["common"]
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  operation: {
-                    operator: "and",
-                    operands: [
-                      {
-                        expression: {
-                          left: "type",
-                          operation: "equal",
-                          right: "stock"
-                        }
-                      },
-                      {
-                        expression: {
-                          left: "typespecs",
-                          operation: "has",
-                          right: ["preferred"]
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  operation: {
-                    operator: "and",
-                    operands: [
-                      {
-                        expression: {
-                          left: "type",
-                          operation: "equal",
-                          right: "dr"
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  operation: {
-                    operator: "and",
-                    operands: [
-                      {
-                        expression: {
-                          left: "type",
-                          operation: "equal",
-                          right: "fund"
-                        }
-                      },
-                      {
-                        expression: {
-                          left: "typespecs",
-                          operation: "has_none_of",
                           right: ["etf"]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  operation: {
+                    operator: "and",
+                    operands: [
+                      {
+                        expression: {
+                          left: "type",
+                          operation: "equal",
+                          right: "structured"
                         }
                       }
                     ]
@@ -190,7 +120,7 @@ class TradingViewStockService {
     const maxRetries = 3;
     const payload = this.createPayload(startRange, endRange);
     const retryText = retryAttempt > 0 ? ` (tentativa ${retryAttempt + 1}/${maxRetries + 1})` : "";
-    
+
     console.log(`🚀 Fazendo requisição POST para range ${startRange}-${endRange}${retryText}`);
 
     try {
@@ -230,12 +160,12 @@ class TradingViewStockService {
   }
 
   async fetchAllData() {
-    console.log("🔍 Buscando todos os dados em lotes de 300 registros...");
-    console.log("📋 Total esperado: ~511 registros");
+    console.log("🔍 Buscando todos os dados de ETFs brasileiros...");
+    console.log("📋 Total esperado: ~200 registros (ETFs)");
     
     let allData = [];
-    const batchSize = 300;
-    const maxRange = 511; // Atualizado para 511
+    const batchSize = 100; // Lotes menores para ETFs
+    const maxRange = 200; // Range máximo do payload para ETFs
     let currentStart = 0;
     
     while (currentStart < maxRange) {
@@ -274,13 +204,24 @@ class TradingViewStockService {
 
       const batchData = response.data;
       console.log(`📊 Lote ${batchNumber}: ${batchData.length} registros recebidos`);
-
+      
+      // Debug: mostrar total_count da resposta se disponível
+      if (response.totalCount !== undefined) {
+        console.log(`📊 Total count da API: ${response.totalCount}`);
+      }
+      
       if (batchData.length > 0) {
         allData.push(...batchData);
       }
 
+      // Se recebeu menos que o esperado, provavelmente chegou ao fim
+      if (batchData.length < batchSize) {
+        console.log(`📄 Última página detectada (menos de ${batchSize} registros)`);
+        break;
+      }
+
       const progress = ((allData.length / maxRange) * 100).toFixed(1);
-      console.log(`📈 Progresso: ${allData.length}/${maxRange} registros (${progress}%)`);
+      console.log(`📈 Progresso: ${allData.length} registros coletados`);
 
       currentStart += batchSize;
 
@@ -300,87 +241,128 @@ class TradingViewStockService {
       return [];
     }
 
-    return data.map((item) => {
-      // Estrutura do retorno da TradingView: item.d[index]
-      // Baseado nas colunas do payload atualizado:
+    let totalItems = data.length;
+    let validItems = 0;
+    let discardedItems = 0;
+    let discardedExamples = [];
+
+    console.log(`📊 Total de registros recebidos: ${totalItems}`);
+
+    const processedData = data.map((item) => {
       const name = item.d[0] || null;        // name (índice 0)
       const description = item.d[1] || null; // description (índice 1)
       const logoid = item.d[2] || null;      // logoid (índice 2)
+      const type = item.d[4] || null;        // type (índice 4)
+      const typespecs = item.d[5] || null;   // typespecs (índice 5)
       const close = item.d[6] || null;       // close (índice 6)
       const change = item.d[12] || null;     // change (índice 12)
+      const aum = item.d[15] || null;        // aum (índice 15) - Assets Under Management
 
       // Calcular change percent se temos close e change
-      let chg_pct = null;
-      if (close && change) {
-        const previousClose = close - change;
-        if (previousClose !== 0) {
-          chg_pct = (change / previousClose) * 100;
-        }
-      }
+      let chg_pct = change;
 
       // Gerar logo_url se temos logoid
       const logo_url = logoid ? LOGO_URL_TEMPLATE.replace("{logoid}", logoid) : null;
 
-      return {
+      const processedItem = {
         symbol: name,
         name: description || name,
         last: close,
         chg_pct: chg_pct ? parseFloat(chg_pct.toFixed(4)) : null,
-        flag: "US",
-        logo_url: logo_url
+        flag: "BR",
+        logo_url: logo_url,
+        // Campos específicos para ETFs
+        aum: aum, // Assets Under Management
+        type: type,
+        typespecs: typespecs
       };
-    }).filter(item => item.symbol && item.last); // Filtrar apenas itens com symbol e price válidos
-  }
 
-  async saveToSupabase(stockData) {
-    try {
-      console.log(`💾 Salvando ${stockData.length} registros no Supabase...`);
-
-      // Inserir ou atualizar dados em lotes
-      const batchSize = 100;
-      let totalUpserted = 0;
-      let errorCount = 0;
-
-      for (let i = 0; i < stockData.length; i += batchSize) {
-        const batch = stockData.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
-        const totalBatches = Math.ceil(stockData.length / batchSize);
+      // Verificar se será descartado (apenas se name é NULL)
+      const willBeDiscarded = !name;
+      
+      if (willBeDiscarded) {
+        discardedItems++;
         
-        console.log(`📦 Processando lote ${batchNumber}/${totalBatches} com ${batch.length} registros...`);
-
-        try {
-          // upsert pelo campo symbol na tabela tradingview_data
-          const { data, error: upsertError } = await supabase
-            .from("tradingview_data")
-            .upsert(batch, { onConflict: "symbol" })
-            .select();
-
-          if (upsertError) {
-            console.error(`❌ Erro ao inserir/atualizar lote ${batchNumber}:`, upsertError.message);
-            errorCount += batch.length;
-          } else {
-            const upsertedCount = data ? data.length : 0;
-            totalUpserted += upsertedCount;
-            console.log(`✅ Lote ${batchNumber}: ${upsertedCount} registros inseridos/atualizados`);
-          }
-        } catch (batchError) {
-          console.error(`❌ Erro de execução no lote ${batchNumber}:`, batchError.message);
-          errorCount += batch.length;
+        // Coletar exemplos dos descartados
+        if (discardedExamples.length < 5) {
+          discardedExamples.push({
+            description: description,
+            type: type,
+            typespecs: typespecs,
+            close: close,
+            aum: aum,
+            reason: "name é NULL"
+          });
         }
-
-        // Pequena pausa entre lotes
-        await new Promise((resolve) => setTimeout(resolve, 200));
+      } else {
+        validItems++;
       }
 
-      console.log(`📊 Resumo: ${totalUpserted} registros inseridos/atualizados, ${errorCount} erros`);
-      return totalUpserted > 0;
-    } catch (error) {
-      console.error("❌ Erro geral ao salvar no Supabase:", error.message);
-      return false;
+      return processedItem;
+    });
+    
+    if (discardedExamples.length > 0) {
+      console.log(`📋 Exemplos de registros descartados (name NULL):`);
+      discardedExamples.forEach((item, index) => {
+        console.log(`   ${index + 1}. Description: "${item.description}", Preço: ${item.close}, Tipo: ${item.type}`);
+        console.log(`      Typespecs: ${JSON.stringify(item.typespecs)}, AUM: ${item.aum}`);
+      });
     }
+
+    // Filtrar apenas registros onde name não é NULL
+    return processedData.filter(item => item.symbol);
   }
 
-  async fetchTradingViewStockData() {
+ async saveToSupabase(etfData) {
+  try {
+    console.log(`💾 Salvando ${etfData.length} registros no Supabase...`);
+
+    // Inserir ou atualizar dados em lotes
+    const batchSize = 50; // Lotes menores para ETFs
+    let totalUpserted = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < etfData.length; i += batchSize) {
+      const batch = etfData.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+      const totalBatches = Math.ceil(etfData.length / batchSize);
+      
+      console.log(`📦 Processando lote ${batchNumber}/${totalBatches} com ${batch.length} registros...`);
+
+      try {
+        // upsert pelo campo symbol na tabela etfbr_data
+        const { data, error: upsertError } = await supabase
+          .from("etfbr_data")
+          .upsert(batch, { onConflict: "symbol" })
+          .select();
+
+        if (upsertError) {
+          console.error(`❌ Erro ao inserir/atualizar lote ${batchNumber}:`, upsertError.message);
+          errorCount += batch.length;
+        } else {
+          const upsertedCount = data ? data.length : 0;
+          totalUpserted += upsertedCount;
+          console.log(`✅ Lote ${batchNumber}: ${upsertedCount} registros inseridos/atualizados`);
+        }
+      } catch (batchError) {
+        console.error(`❌ Erro de execução no lote ${batchNumber}:`, batchError.message);
+        errorCount += batch.length;
+      }
+
+      // Pequena pausa entre lotes
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    console.log(`📊 Resumo: ${totalUpserted} registros inseridos/atualizados, ${errorCount} erros`);
+    return totalUpserted > 0;
+  } catch (error) {
+    console.error("❌ Erro geral ao salvar no Supabase:", error.message);
+    return false;
+  }
+}
+
+
+  async fetchTradingViewETFData() {
     try {
       const brasiliaTime = this.getBrasiliaTime();
 
@@ -397,8 +379,8 @@ class TradingViewStockService {
           })}`);
         }
 
-        console.log("🚀 Iniciando coleta de dados de ações americanas (SP500/NASDAQ) da TradingView...");
-        console.log("⚠️  ATENÇÃO: Coleta de ~511 ativos deve levar 2-3 minutos (com retry automático)");
+        console.log("🚀 Iniciando coleta de dados de ETFs brasileiros da TradingView...");
+        console.log("⚠️  ATENÇÃO: Coleta de ETFs brasileiros deve levar 1-2 minutos (com retry automático)");
 
         // Buscar todos os dados em lotes
         const allData = await this.fetchAllData();
@@ -416,12 +398,6 @@ class TradingViewStockService {
           console.log("❌ Nenhum registro válido para salvar");
           return;
         }
-
-        // Debug: mostrar exemplo dos dados
-        if (filteredData.length > 0) {
-          console.log("🔍 Exemplo de registro:", JSON.stringify(filteredData[0], null, 2));
-        }
-
         // Salvar no Supabase
         const supabaseSuccess = await this.saveToSupabase(filteredData);
 
@@ -444,20 +420,20 @@ class TradingViewStockService {
 
   startAutomation() {
     const brasiliaTime = this.getBrasiliaTime();
-    console.log("🕒 Iniciando automação TradingView Stocks - execução a cada 15 minutos");
+    console.log("🕒 Iniciando automação TradingView ETF Brazil - execução a cada 30 minutos");
     console.log(`🌎 Horário atual em Brasília: ${brasiliaTime.toLocaleString("pt-BR", {
       timeZone: "America/Sao_Paulo",
     })}`);
-    console.log("📅 Funcionamento: Segunda a Sexta, 9:30h às 17:30h (horário de Brasília)");
-    console.log("⚠️  ATENÇÃO: Coleta de ~511 ativos deve levar 2-3 minutos (com retry automático)");
+    console.log("📅 Funcionamento: Segunda a Sexta, 10:00h às 17:00h (horário de Brasília - B3)");
+    console.log("⚠️  ATENÇÃO: Coleta de ETFs brasileiros deve levar 1-2 minutos (com retry automático)");
 
     // Executar imediatamente
-    this.fetchTradingViewStockData();
+    this.fetchTradingViewETFData();
 
-    // Agendar execuções a cada 15 minutos (reduzido devido ao menor volume)
+    // Agendar execuções a cada 30 minutos (menos frequente para ETFs)
     this.intervalId = setInterval(() => {
-      this.fetchTradingViewStockData();
-    }, 15 * 60 * 1000);
+      this.fetchTradingViewETFData();
+    }, 30 * 60 * 1000);
 
     console.log("⏰ Automação ativa. Pressione Ctrl+C para parar.");
   }
@@ -471,39 +447,40 @@ class TradingViewStockService {
   }
 
   async getStats() {
-    try {
-      const { count, error } = await supabase
-        .from("tradingview_data")
-        .select("*", { count: "exact", head: true })
-        .eq("flag", "US");
+  try {
+    const { count, error } = await supabase
+      .from("etfbr_data")
+      .select("*", { count: "exact", head: true })
+      .eq("flag", "BR");
 
-      if (error) {
-        console.error("❌ Erro ao buscar estatísticas:", error.message);
-        return;
-      }
-
-      const { data: latestRecord } = await supabase
-        .from("tradingview_data")
-        .select("created_at, symbol, name, last, chg_pct")
-        .eq("flag", "US")
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      const brasiliaTime = this.getBrasiliaTime();
-
-      console.log("\n📊 ESTATÍSTICAS DO TRADINGVIEW STOCKS:");
-      console.log(`📈 Total de registros (flag=US): ${count}`);
-      console.log(`⏰ Horário comercial ativo: ${this.isBusinessHours() ? "✅ SIM" : "❌ NÃO"}`);
-
-      if (latestRecord && latestRecord.length > 0) {
-        const latest = latestRecord[0];
-        console.log(`📅 Último registro: ${new Date(latest.created_at).toLocaleString("pt-BR")}`);
-        console.log(`💰 Exemplo: ${latest.symbol} (${latest.name}) - Preço: $${latest.last}, Variação: ${latest.chg_pct}%`);
-      }
-    } catch (error) {
+    if (error) {
       console.error("❌ Erro ao buscar estatísticas:", error.message);
+      return;
     }
+
+    const { data: latestRecord } = await supabase
+      .from("etfbr_data")
+      .select("created_at, symbol, name, last, chg_pct, aum")
+      .eq("flag", "BR")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const brasiliaTime = this.getBrasiliaTime();
+
+    console.log("\n📊 ESTATÍSTICAS DO TRADINGVIEW ETF BRAZIL:");
+    console.log(`📈 Total de registros (flag=BR): ${count}`);
+    console.log(`⏰ Horário comercial ativo: ${this.isBusinessHours() ? "✅ SIM" : "❌ NÃO"}`);
+
+    if (latestRecord && latestRecord.length > 0) {
+      const latest = latestRecord[0];
+      const aumFormatted = latest.aum ? `AUM: R$ ${(latest.aum / 1000000).toFixed(2)}M` : 'AUM: N/A';
+      console.log(`📅 Último registro: ${new Date(latest.created_at).toLocaleString("pt-BR")}`);
+      console.log(`💰 Exemplo: ${latest.symbol} (${latest.name}) - Preço: R$${latest.last}, Variação: ${latest.chg_pct}%, ${aumFormatted}`);
+    }
+  } catch (error) {
+    console.error("❌ Erro ao buscar estatísticas:", error.message);
   }
+}
 }
 
 // Função para manusear encerramento gracioso
@@ -523,7 +500,7 @@ function setupGracefulShutdown(service) {
 
 // Função principal
 async function main() {
-  const service = new TradingViewStockService();
+  const service = new TradingViewETFBrazilService();
   setupGracefulShutdown(service);
 
   // Verificar argumentos da linha de comando
@@ -536,7 +513,7 @@ async function main() {
 
   if (args.includes("--once")) {
     console.log("🎯 Executando apenas uma vez...");
-    await service.fetchTradingViewStockData();
+    await service.fetchTradingViewETFData();
     return;
   }
 
@@ -552,4 +529,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = TradingViewStockService;
+module.exports = TradingViewETFBrazilService;
