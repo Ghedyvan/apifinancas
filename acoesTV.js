@@ -293,13 +293,7 @@ class TradingViewBrazilService {
       const change = item.d[12] || null;     // change (índice 12)
 
       // Calcular change percent se temos close e change
-      let chg_pct = null;
-      if (close && change) {
-        const previousClose = close - change;
-        if (previousClose !== 0) {
-          chg_pct = (change / previousClose) * 100;
-        }
-      }
+      let chg_pct = change;
 
       // Gerar logo_url se temos logoid
       const logo_url = logoid ? LOGO_URL_TEMPLATE.replace("{logoid}", logoid) : null;
@@ -308,7 +302,7 @@ class TradingViewBrazilService {
         symbol: name,
         name: description || name,
         last: close,
-        chg_pct: chg_pct ? parseFloat(chg_pct.toFixed(4)) : null,
+        chg_pct: chg_pct ? parseFloat(chg_pct.toFixed(2)) : null,
         flag: "BR",
         logo_url: logo_url
       };
